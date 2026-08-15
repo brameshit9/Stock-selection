@@ -3,7 +3,14 @@ import requests
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from streamlit_autorefresh import st_autorefresh
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def now_ist():
+    return datetime.now(IST)
 
 # ============================================================
 # PAGE
@@ -280,7 +287,7 @@ def track_first_seen(
 
     seen = st.session_state[store_key]
 
-    now = datetime.now()
+    now = now_ist()
 
     current_symbols = set(df[symbol_col])
 
@@ -1691,32 +1698,36 @@ st.title(
     "Nifty50 Pre-Market Dashboard"
 )
 
-refresh_col, debug_col = st.columns(
-    [1, 3]
+show_debug = st.checkbox(
+    "Show raw response (debug)",
+    value=False
 )
 
-with refresh_col:
 
-    if st.button(
-        "🔄 Refresh Now",
-        use_container_width=True
-    ):
+# ============================================================
+# LOAD DERIVATIVES
+# ============================================================
+# Loaded once up front since Stock Futures, Stock Options,
+# Calls, and Puts are now split across two different groups
+# below.
+# ============================================================
 
-        st.cache_data.clear()
-        get_nse_session.clear()
-        st.rerun()
+try:
 
-with debug_col:
+    derivatives = load_derivatives()
 
-    show_debug = st.checkbox(
-        "Show raw response (debug)",
-        value=False
+except Exception as e:
+
+    derivatives = None
+
+    st.error(
+        f"Could not load derivatives data: {e}"
     )
 
 
 # ============================================================
 # ============================================================
-# 1. EQUITY PRE-MARKET
+# GROUP 1 — PRE-MARKET SNAPSHOT
 # ============================================================
 # ============================================================
 
@@ -1760,9 +1771,10 @@ if not market_df.empty:
     st.caption(
         f"NSE Equity Pre-Market "
         f"({segment_key}) — "
-        + datetime.now().strftime(
+        + now_ist().strftime(
             "%d-%b-%Y %H:%M:%S"
         )
+        + " IST"
     )
 
     st.write(
@@ -1898,9 +1910,58 @@ else:
     )
 
 
+st.divider()
+
+try:
+
+    derivative_preopen_session = (
+        get_nse_session()
+    )
+
+    derivative_preopen_raw = (
+        fetch_derivative_preopen(
+            derivative_preopen_session
+        )
+    )
+
+    derivative_preopen_df = (
+        make_derivative_preopen_df(
+            derivative_preopen_raw
+        )
+    )
+
+    render_derivative_preopen_table(
+        derivative_preopen_df
+    )
+
+except Exception as e:
+
+    derivative_preopen_df = pd.DataFrame()
+
+    st.error(
+        "Could not load "
+        "Derivatives Pre-Open Market — "
+        f"Stock Futures: {e}"
+    )
+
+
+st.divider()
+
+if derivatives:
+
+    render_derivative_table(
+        "Stock Futures — Top 20 Contracts",
+        derivatives["futures"]
+    )
+
+
 # ============================================================
-# EQUITY GAINERS / LOSERS
 # ============================================================
+# GROUP 2 — GAINERS, LOSERS & OPTIONS ACTIVITY
+# ============================================================
+# ============================================================
+
+st.divider()
 
 st.subheader(
     "Equity Gainers / Losers"
@@ -1992,6 +2053,32 @@ with col4:
     )
 
 
+st.divider()
+
+if derivatives:
+
+    render_derivative_table(
+        "Stock Options — Top 20 Contracts",
+        derivatives["options"]
+    )
+
+    col5, col6 = st.columns(2)
+
+    with col5:
+
+        render_derivative_table(
+            "🟢 Most Active Stock Calls",
+            derivatives["calls"]
+        )
+
+    with col6:
+
+        render_derivative_table(
+            "🔴 Most Active Stock Puts",
+            derivatives["puts"]
+        )
+
+
 # ============================================================
 # MOST ACTIVE EQUITIES
 # ============================================================
@@ -2051,110 +2138,6 @@ else:
         "No most active equity data "
         "returned by NSE."
     )
-
-
-# ============================================================
-# ============================================================
-# 2. DERIVATIVES
-# ============================================================
-# ============================================================
-
-st.divider()
-
-st.header(
-    "📊 Derivatives"
-)
-
-
-# ============================================================
-# DERIVATIVES PRE-OPEN MARKET
-# ============================================================
-
-try:
-
-    derivative_preopen_session = (
-        get_nse_session()
-    )
-
-    derivative_preopen_raw = (
-        fetch_derivative_preopen(
-            derivative_preopen_session
-        )
-    )
-
-    derivative_preopen_df = (
-        make_derivative_preopen_df(
-            derivative_preopen_raw
-        )
-    )
-
-    render_derivative_preopen_table(
-        derivative_preopen_df
-    )
-
-except Exception as e:
-
-    derivative_preopen_df = pd.DataFrame()
-
-    st.error(
-        "Could not load "
-        "Derivatives Pre-Open Market — "
-        f"Stock Futures: {e}"
-    )
-
-
-# ============================================================
-# STOCK FUTURES / OPTIONS / CALLS / PUTS
-# ============================================================
-
-st.divider()
-
-try:
-
-    derivatives = load_derivatives()
-
-except Exception as e:
-
-    derivatives = None
-
-    st.error(
-        f"Could not load derivatives data: {e}"
-    )
-
-
-if derivatives:
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        render_derivative_table(
-            "Stock Futures — Top 20 Contracts",
-            derivatives["futures"]
-        )
-
-    with col2:
-
-        render_derivative_table(
-            "Stock Options — Top 20 Contracts",
-            derivatives["options"]
-        )
-
-    col3, col4 = st.columns(2)
-
-    with col3:
-
-        render_derivative_table(
-            "🟢 Most Active Stock Calls",
-            derivatives["calls"]
-        )
-
-    with col4:
-
-        render_derivative_table(
-            "🔴 Most Active Stock Puts",
-            derivatives["puts"]
-        )
 
 
 # ============================================================
