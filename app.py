@@ -1782,7 +1782,7 @@ def build_top_movers_summary(sources):
     return pd.DataFrame(rows)
 
 
-def plot_movers_chart(df, title):
+def plot_movers_chart(df, title, bar_color, show_legend=False):
 
     if df is None or df.empty:
 
@@ -1800,22 +1800,18 @@ def plot_movers_chart(df, title):
         + chart_df["Symbol"]
     )
 
-    # Reverse row order so CE categories plot at the TOP of the
-    # barh chart (matplotlib barh draws bottom-to-top).
+    # Reverse row order so the first category in the list plots
+    # at the TOP of the barh chart (matplotlib barh draws
+    # bottom-to-top).
     chart_df = (
         chart_df
         .iloc[::-1]
         .reset_index(drop=True)
     )
 
-    bar_colors = [
-        UP_COLOR if side == "CE" else DOWN_COLOR
-        for side in chart_df["Side"]
-    ]
-
     # Size the figure to the number of bars instead of a fixed
-    # square, so a 12-bar chart doesn't end up as tall/cramped
-    # as a 24-bar one.
+    # square, so a 12-bar chart doesn't end up cramped or
+    # oversized.
     n_bars = len(chart_df)
 
     fig_height = max(
@@ -1830,7 +1826,7 @@ def plot_movers_chart(df, title):
     ax.barh(
         chart_df["Label"],
         chart_df["% Chng"],
-        color=bar_colors,
+        color=bar_color,
         height=0.55
     )
 
@@ -1876,22 +1872,24 @@ def plot_movers_chart(df, title):
             fontsize=8
         )
 
-    legend_handles = [
-        Patch(
-            facecolor=UP_COLOR,
-            label="CE — Calls / Gainers"
-        ),
-        Patch(
-            facecolor=DOWN_COLOR,
-            label="PE — Puts / Losers"
-        ),
-    ]
+    if show_legend:
 
-    ax.legend(
-        handles=legend_handles,
-        loc="lower right",
-        fontsize=8
-    )
+        legend_handles = [
+            Patch(
+                facecolor=UP_COLOR,
+                label="CE — Calls / Gainers"
+            ),
+            Patch(
+                facecolor=DOWN_COLOR,
+                label="PE — Puts / Losers"
+            ),
+        ]
+
+        ax.legend(
+            handles=legend_handles,
+            loc="lower right",
+            fontsize=8
+        )
 
     fig.tight_layout()
 
@@ -1931,34 +1929,32 @@ def render_top_movers_summary(
             options_df["Type"] == "PE"
         ]
 
-    # Split into two groups instead of one 24-bar chart:
-    # equity % moves (typically single-digit %) and option
-    # premium % moves (which can run into the hundreds of %).
-    # Mixing both on one axis squashes the equity bars flat —
-    # keeping them on separate charts keeps each readable.
-    equity_sources = [
+    # Two separate charts: all CE / gainer categories together,
+    # and all PE / loser categories together — each with its
+    # own independently-scaled x-axis.
+    gainer_sources = [
         ("CE", "NIFTY 50 Gainers", nifty_gainers, False),
         ("CE", "F&O Gainers", fno_gainers, False),
-        ("PE", "NIFTY 50 Losers", nifty_losers, True),
-        ("PE", "F&O Losers", fno_losers, True),
-    ]
-
-    options_sources = [
         ("CE", "Stock Options (CE)", ce_options, False),
         ("CE", "Most Active Calls", calls_df, False),
+    ]
+
+    loser_sources = [
+        ("PE", "NIFTY 50 Losers", nifty_losers, True),
+        ("PE", "F&O Losers", fno_losers, True),
         ("PE", "Stock Options (PE)", pe_options, True),
         ("PE", "Most Active Puts", puts_df, True),
     ]
 
-    equity_summary_df = build_top_movers_summary(
-        equity_sources
+    gainer_summary_df = build_top_movers_summary(
+        gainer_sources
     )
 
-    options_summary_df = build_top_movers_summary(
-        options_sources
+    loser_summary_df = build_top_movers_summary(
+        loser_sources
     )
 
-    if equity_summary_df.empty and options_summary_df.empty:
+    if gainer_summary_df.empty and loser_summary_df.empty:
 
         st.info(
             "Top 3 movers summary not available yet "
@@ -1978,15 +1974,17 @@ def render_top_movers_summary(
     with col1:
 
         plot_movers_chart(
-            equity_summary_df,
-            "Equity Movers (Stocks)"
+            gainer_summary_df,
+            "🟢 Gainers — CE",
+            UP_COLOR
         )
 
     with col2:
 
         plot_movers_chart(
-            options_summary_df,
-            "Options Movers (Premium % Chng)"
+            loser_summary_df,
+            "🔴 Losers — PE",
+            DOWN_COLOR
         )
 
 
