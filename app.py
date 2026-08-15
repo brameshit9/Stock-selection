@@ -929,66 +929,23 @@ def _change_color(value):
 
 
 # ============================================================
-# DERIVATIVE PRE-OPEN TABLE
+# DERIVATIVE PRE-OPEN CHART
+# ============================================================
+# Rendered the same way as the Equity Pre-Market section:
+# a horizontal % change bar chart + a market-breadth donut.
 # ============================================================
 
-def style_derivative_preopen_table(df):
-
-    if df.empty:
-        return df
-
-    styler = df.style
-
-    for column in (
-        "Chng",
-        "% Chng"
-    ):
-
-        if column in df.columns:
-
-            styler = styler.map(
-                _change_color,
-                subset=[column]
-            )
-
-    formats = {}
-
-    for column in (
-        "LTP",
-        "Chng",
-        "% Chng",
-        "Open",
-        "High",
-        "Low"
-    ):
-
-        if column in df.columns:
-            formats[column] = "{:,.2f}"
-
-    for column in (
-        "Volume",
-        "Open Interest"
-    ):
-
-        if column in df.columns:
-            formats[column] = "{:,.0f}"
-
-    if "Value" in df.columns:
-        formats["Value"] = "{:,.2f}"
-
-    return styler.format(
-        formats,
-        na_rep="-"
-    )
-
-
-def render_derivative_preopen_table(df):
+def render_derivative_preopen_chart(df):
 
     st.subheader(
         "📋 Derivatives Pre-Open Market — Stock Futures"
     )
 
-    if df.empty:
+    if (
+        df.empty
+        or "Symbol" not in df.columns
+        or "% Chng" not in df.columns
+    ):
 
         st.info(
             "No stock futures pre-open data "
@@ -997,17 +954,161 @@ def render_derivative_preopen_table(df):
 
         return
 
-    df = track_first_seen(
-        df,
-        "deriv_preopen_futures"
+    chart_df = (
+        df
+        .dropna(subset=["% Chng"])
+        .sort_values(
+            "% Chng",
+            ascending=True
+        )
+        .reset_index(drop=True)
     )
 
-    st.dataframe(
-        style_derivative_preopen_table(df),
-        use_container_width=True,
-        hide_index=True,
-        height=600
+    if chart_df.empty:
+
+        st.info(
+            "No stock futures pre-open data "
+            "returned by NSE."
+        )
+
+        return
+
+    top_loser = chart_df.iloc[0]
+
+    top_gainer = chart_df.iloc[-1]
+
+    st.caption(
+        "NSE Derivatives Pre-Open "
+        "(Stock Futures) — "
+        + now_ist().strftime(
+            "%d-%b-%Y %H:%M:%S"
+        )
+        + " IST"
     )
+
+    st.write(
+        f"**Top Gainer:** "
+        f"{top_gainer['Symbol']} "
+        f"(+{top_gainer['% Chng']:.2f}%)"
+        f"  |  "
+        f"**Top Loser:** "
+        f"{top_loser['Symbol']} "
+        f"({top_loser['% Chng']:.2f}%)"
+    )
+
+    col1, col2 = st.columns(
+        [3, 1]
+    )
+
+    with col1:
+
+        fig, ax = plt.subplots(
+            figsize=(10, 10)
+        )
+
+        colors = [
+            UP_COLOR
+            if value >= 0
+            else DOWN_COLOR
+            for value
+            in chart_df["% Chng"]
+        ]
+
+        ax.barh(
+            chart_df["Symbol"],
+            chart_df["% Chng"],
+            color=colors,
+            height=0.6
+        )
+
+        ax.axvline(
+            0,
+            color=TEXT_COLOR,
+            linewidth=0.8
+        )
+
+        ax.set_title(
+            "Stock Futures Pre-Open Movement"
+        )
+
+        for index, value in enumerate(
+            chart_df["% Chng"]
+        ):
+
+            ax.text(
+                value,
+                index,
+                f" {value:+.2f}%",
+                va="center",
+                ha=(
+                    "left"
+                    if value >= 0
+                    else "right"
+                ),
+                fontsize=8
+            )
+
+        st.pyplot(fig)
+
+        plt.close(fig)
+
+    with col2:
+
+        up = int(
+            (
+                chart_df["% Chng"]
+                >= 0
+            ).sum()
+        )
+
+        down = int(
+            (
+                chart_df["% Chng"]
+                < 0
+            ).sum()
+        )
+
+        fig, ax = plt.subplots(
+            figsize=(5, 5)
+        )
+
+        ax.pie(
+            [up, down],
+            labels=[
+                f"Up ({up})",
+                f"Down ({down})"
+            ],
+            colors=[
+                UP_COLOR,
+                DOWN_COLOR
+            ],
+            wedgeprops={
+                "width": 0.4
+            },
+            autopct="%1.0f%%",
+            startangle=90
+        )
+
+        ax.set_title(
+            "Market Breadth"
+        )
+
+        ratio = (
+            up / down
+            if down > 0
+            else float("inf")
+        )
+
+        ax.text(
+            0,
+            -1.3,
+            f"A/D Ratio: {ratio:.2f}",
+            ha="center"
+        )
+
+        st.pyplot(fig)
+
+        plt.close(fig)
 
 
 # ============================================================
@@ -1930,7 +2031,7 @@ try:
         )
     )
 
-    render_derivative_preopen_table(
+    render_derivative_preopen_chart(
         derivative_preopen_df
     )
 
