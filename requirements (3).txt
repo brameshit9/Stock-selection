@@ -1,0 +1,5 @@
+streamlit>=1.32
+requests
+pandas
+matplotlib
+streamlit-autorefresh>=1.0.1
