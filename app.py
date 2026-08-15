@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from streamlit_autorefresh import st_autorefresh
@@ -1003,8 +1002,6 @@ def render_derivative_preopen_chart(df):
 
     with col1:
 
-        plt.close("all")
-
         fig, ax = plt.subplots(
             figsize=(10, 10)
         )
@@ -1730,286 +1727,6 @@ def make_most_active_equities(
 
 
 # ============================================================
-# TOP 3 MOVERS SUMMARY (CE / PE)
-# ============================================================
-# One compact table combining the top 3 (by % Chng) rows from
-# each of the CE-side and PE-side source tables:
-#
-# CE (gainers side):
-#   - NIFTY 50 Top Gainers
-#   - F&O Securities Top Gainers
-#   - Stock Options (CE contracts)
-#   - Most Active Stock Calls
-#
-# PE (losers side):
-#   - NIFTY 50 Top Losers
-#   - F&O Securities Top Losers
-#   - Stock Options (PE contracts)
-#   - Most Active Stock Puts
-# ============================================================
-
-def build_top_movers_summary(sources):
-
-    rows = []
-
-    for side, category, df, ascending in sources:
-
-        if (
-            df is None
-            or df.empty
-            or "Symbol" not in df.columns
-            or "% Chng" not in df.columns
-        ):
-            continue
-
-        top3 = (
-            df
-            .dropna(subset=["% Chng"])
-            .sort_values(
-                "% Chng",
-                ascending=ascending
-            )
-            .head(3)
-        )
-
-        for _, record in top3.iterrows():
-
-            rows.append({
-                "Side": side,
-                "Category": category,
-                "Symbol": record["Symbol"],
-                "% Chng": record["% Chng"],
-            })
-
-    return pd.DataFrame(rows)
-
-
-def plot_movers_chart(df, title, bar_color, show_legend=False):
-
-    if df is None or df.empty:
-
-        st.info(
-            f"No data available for '{title}'."
-        )
-
-        return
-
-    # Defensive: make sure no stray/leftover matplotlib figure
-    # from a previous run is still open before we start a new
-    # one — this is what causes labels/old charts to appear to
-    # "bleed" into the next render.
-    plt.close("all")
-
-    chart_df = df.copy()
-
-    chart_df["Label"] = (
-        chart_df["Category"]
-        + " — "
-        + chart_df["Symbol"]
-    )
-
-    # Reverse row order so the first category in the list plots
-    # at the TOP of the barh chart (matplotlib barh draws
-    # bottom-to-top).
-    chart_df = (
-        chart_df
-        .iloc[::-1]
-        .reset_index(drop=True)
-    )
-
-    n_bars = len(chart_df)
-
-    fig_height = max(
-        3.5,
-        n_bars * 0.5 + 1.2
-    )
-
-    fig, ax = plt.subplots(
-        figsize=(9, fig_height)
-    )
-
-    ax.barh(
-        chart_df["Label"],
-        chart_df["% Chng"],
-        color=bar_color,
-        height=0.55,
-        zorder=3
-    )
-
-    ax.axvline(
-        0,
-        color=TEXT_COLOR,
-        linewidth=0.8,
-        zorder=2
-    )
-
-    ax.set_title(
-        title,
-        fontsize=13,
-        pad=14
-    )
-
-    ax.set_xlabel("% Chng")
-
-    # Give the value labels generous room on both sides so the
-    # biggest bar's label never gets clipped by the axes edge
-    # or collides with the title.
-    x_min = float(chart_df["% Chng"].min())
-    x_max = float(chart_df["% Chng"].max())
-
-    span = (x_max - x_min) or 1.0
-
-    left_pad = span * 0.15 + 3
-    right_pad = span * 0.15 + 3
-
-    ax.set_xlim(
-        min(0, x_min) - left_pad,
-        max(0, x_max) + right_pad
-    )
-
-    ax.set_ylim(-0.7, n_bars - 0.3)
-
-    for index, value in enumerate(
-        chart_df["% Chng"]
-    ):
-
-        ax.text(
-            value,
-            index,
-            f" {value:+.2f}% ",
-            va="center",
-            ha=(
-                "left"
-                if value >= 0
-                else "right"
-            ),
-            fontsize=9,
-            zorder=4,
-            clip_on=False
-        )
-
-    ax.tick_params(
-        axis="y",
-        labelsize=9
-    )
-
-    if show_legend:
-
-        legend_handles = [
-            Patch(
-                facecolor=UP_COLOR,
-                label="CE — Calls / Gainers"
-            ),
-            Patch(
-                facecolor=DOWN_COLOR,
-                label="PE — Puts / Losers"
-            ),
-        ]
-
-        ax.legend(
-            handles=legend_handles,
-            loc="lower right",
-            fontsize=8
-        )
-
-    fig.tight_layout(pad=1.6)
-
-    st.pyplot(fig, clear_figure=True)
-
-    plt.close(fig)
-
-
-def render_top_movers_summary(
-    nifty_gainers,
-    nifty_losers,
-    fno_gainers,
-    fno_losers,
-    options_df,
-    calls_df,
-    puts_df
-):
-
-    st.subheader(
-        "🎯 Top 3 Movers Summary — CE (Gainers) vs PE (Losers)"
-    )
-
-    ce_options = pd.DataFrame()
-    pe_options = pd.DataFrame()
-
-    if (
-        options_df is not None
-        and not options_df.empty
-        and "Type" in options_df.columns
-    ):
-
-        ce_options = options_df[
-            options_df["Type"] == "CE"
-        ]
-
-        pe_options = options_df[
-            options_df["Type"] == "PE"
-        ]
-
-    # Two separate charts: all CE / gainer categories together,
-    # and all PE / loser categories together — each with its
-    # own independently-scaled x-axis.
-    gainer_sources = [
-        ("CE", "NIFTY 50 Gainers", nifty_gainers, False),
-        ("CE", "F&O Gainers", fno_gainers, False),
-        ("CE", "Stock Options (CE)", ce_options, False),
-        ("CE", "Most Active Calls", calls_df, False),
-    ]
-
-    loser_sources = [
-        ("PE", "NIFTY 50 Losers", nifty_losers, True),
-        ("PE", "F&O Losers", fno_losers, True),
-        ("PE", "Stock Options (PE)", pe_options, True),
-        ("PE", "Most Active Puts", puts_df, True),
-    ]
-
-    gainer_summary_df = build_top_movers_summary(
-        gainer_sources
-    )
-
-    loser_summary_df = build_top_movers_summary(
-        loser_sources
-    )
-
-    if gainer_summary_df.empty and loser_summary_df.empty:
-
-        st.info(
-            "Top 3 movers summary not available yet "
-            "— underlying tables have not loaded."
-        )
-
-        return
-
-    st.caption(
-        "Top 3 by % Chng from each CE/PE source table — "
-        + now_ist().strftime("%d-%b-%Y %H:%M:%S")
-        + " IST"
-    )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        plot_movers_chart(
-            gainer_summary_df,
-            "🟢 Gainers — CE",
-            UP_COLOR
-        )
-
-    with col2:
-
-        plot_movers_chart(
-            loser_summary_df,
-            "🔴 Losers — PE",
-            DOWN_COLOR
-        )
-
-
-# ============================================================
 # SIDEBAR
 # ============================================================
 
@@ -2110,64 +1827,6 @@ except Exception as e:
 
 
 # ============================================================
-# LOAD EQUITY GAINERS / LOSERS
-# ============================================================
-# Loaded here (rather than down in Group 2) so that the
-# NIFTY / F&O gainer & loser tables are already available
-# for the Top 3 Movers Summary, which renders below the
-# pre-market charts.
-# ============================================================
-
-try:
-
-    equity_raw = load_equity_variations()
-
-    nifty_gainers = prepare_equity_df(
-        extract_equity_group(
-            equity_raw.get("gainers"),
-            "NIFTY"
-        ),
-        descending=True
-    )
-
-    nifty_losers = prepare_equity_df(
-        extract_equity_group(
-            equity_raw.get("loosers"),
-            "NIFTY"
-        ),
-        descending=False
-    )
-
-    fno_gainers = prepare_equity_df(
-        extract_equity_group(
-            equity_raw.get("gainers"),
-            "FOSec"
-        ),
-        descending=True
-    )
-
-    fno_losers = prepare_equity_df(
-        extract_equity_group(
-            equity_raw.get("loosers"),
-            "FOSec"
-        ),
-        descending=False
-    )
-
-except Exception as e:
-
-    equity_raw = {}
-    nifty_gainers = pd.DataFrame()
-    nifty_losers = pd.DataFrame()
-    fno_gainers = pd.DataFrame()
-    fno_losers = pd.DataFrame()
-
-    st.error(
-        f"Could not load equity data: {e}"
-    )
-
-
-# ============================================================
 # ============================================================
 # GROUP 1 — PRE-MARKET SNAPSHOT
 # ============================================================
@@ -2234,8 +1893,6 @@ if not market_df.empty:
     )
 
     with col1:
-
-        plt.close("all")
 
         fig, ax = plt.subplots(
             figsize=(10, 10)
@@ -2389,22 +2046,6 @@ except Exception as e:
     )
 
 
-# ============================================================
-# TOP 3 MOVERS SUMMARY — placed right below the charts above
-# ============================================================
-
-st.divider()
-
-render_top_movers_summary(
-    nifty_gainers,
-    nifty_losers,
-    fno_gainers,
-    fno_losers,
-    derivatives["options"]["df"] if derivatives else pd.DataFrame(),
-    derivatives["calls"]["df"] if derivatives else pd.DataFrame(),
-    derivatives["puts"]["df"] if derivatives else pd.DataFrame(),
-)
-
 st.divider()
 
 if derivatives:
@@ -2427,10 +2068,53 @@ st.subheader(
     "Equity Gainers / Losers"
 )
 
-# NOTE: nifty_gainers / nifty_losers / fno_gainers / fno_losers
-# and equity_raw were already loaded earlier (before Group 1)
-# so the Top 3 Movers Summary above could use them. They are
-# simply rendered here as before.
+try:
+
+    equity_raw = load_equity_variations()
+
+    nifty_gainers = prepare_equity_df(
+        extract_equity_group(
+            equity_raw.get("gainers"),
+            "NIFTY"
+        ),
+        descending=True
+    )
+
+    nifty_losers = prepare_equity_df(
+        extract_equity_group(
+            equity_raw.get("loosers"),
+            "NIFTY"
+        ),
+        descending=False
+    )
+
+    fno_gainers = prepare_equity_df(
+        extract_equity_group(
+            equity_raw.get("gainers"),
+            "FOSec"
+        ),
+        descending=True
+    )
+
+    fno_losers = prepare_equity_df(
+        extract_equity_group(
+            equity_raw.get("loosers"),
+            "FOSec"
+        ),
+        descending=False
+    )
+
+except Exception as e:
+
+    nifty_gainers = pd.DataFrame()
+    nifty_losers = pd.DataFrame()
+    fno_gainers = pd.DataFrame()
+    fno_losers = pd.DataFrame()
+
+    st.error(
+        f"Could not load equity data: {e}"
+    )
+
 
 col1, col2 = st.columns(2)
 
