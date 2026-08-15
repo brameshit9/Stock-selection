@@ -1727,6 +1727,149 @@ def make_most_active_equities(
 
 
 # ============================================================
+# TOP 3 MOVERS SUMMARY (CE / PE)
+# ============================================================
+# One compact table combining the top 3 (by % Chng) rows from
+# each of the CE-side and PE-side source tables:
+#
+# CE (gainers side):
+#   - NIFTY 50 Top Gainers
+#   - F&O Securities Top Gainers
+#   - Stock Options (CE contracts)
+#   - Most Active Stock Calls
+#
+# PE (losers side):
+#   - NIFTY 50 Top Losers
+#   - F&O Securities Top Losers
+#   - Stock Options (PE contracts)
+#   - Most Active Stock Puts
+# ============================================================
+
+def build_top_movers_summary(sources):
+
+    rows = []
+
+    for side, category, df, ascending in sources:
+
+        if (
+            df is None
+            or df.empty
+            or "Symbol" not in df.columns
+            or "% Chng" not in df.columns
+        ):
+            continue
+
+        top3 = (
+            df
+            .dropna(subset=["% Chng"])
+            .sort_values(
+                "% Chng",
+                ascending=ascending
+            )
+            .head(3)
+        )
+
+        for _, record in top3.iterrows():
+
+            rows.append({
+                "Side": side,
+                "Category": category,
+                "Symbol": record["Symbol"],
+                "% Chng": record["% Chng"],
+            })
+
+    return pd.DataFrame(rows)
+
+
+def style_summary_table(df):
+
+    if df.empty:
+        return df
+
+    styler = df.style
+
+    if "% Chng" in df.columns:
+
+        styler = styler.map(
+            _change_color,
+            subset=["% Chng"]
+        )
+
+    return styler.format(
+        {"% Chng": "{:+.2f}%"},
+        na_rep="-"
+    )
+
+
+def render_top_movers_summary(
+    nifty_gainers,
+    nifty_losers,
+    fno_gainers,
+    fno_losers,
+    options_df,
+    calls_df,
+    puts_df
+):
+
+    st.subheader(
+        "🎯 Top 3 Movers Summary — CE (Gainers) vs PE (Losers)"
+    )
+
+    ce_options = pd.DataFrame()
+    pe_options = pd.DataFrame()
+
+    if (
+        options_df is not None
+        and not options_df.empty
+        and "Type" in options_df.columns
+    ):
+
+        ce_options = options_df[
+            options_df["Type"] == "CE"
+        ]
+
+        pe_options = options_df[
+            options_df["Type"] == "PE"
+        ]
+
+    sources = [
+        ("CE", "NIFTY 50 Gainers", nifty_gainers, False),
+        ("CE", "F&O Gainers", fno_gainers, False),
+        ("CE", "Stock Options (CE)", ce_options, False),
+        ("CE", "Most Active Calls", calls_df, False),
+
+        ("PE", "NIFTY 50 Losers", nifty_losers, True),
+        ("PE", "F&O Losers", fno_losers, True),
+        ("PE", "Stock Options (PE)", pe_options, True),
+        ("PE", "Most Active Puts", puts_df, True),
+    ]
+
+    summary_df = build_top_movers_summary(sources)
+
+    if summary_df.empty:
+
+        st.info(
+            "Top 3 movers summary not available yet "
+            "— underlying tables have not loaded."
+        )
+
+        return
+
+    st.caption(
+        "Top 3 by % Chng from each CE/PE source table — "
+        + now_ist().strftime("%d-%b-%Y %H:%M:%S")
+        + " IST"
+    )
+
+    st.dataframe(
+        style_summary_table(summary_df),
+        use_container_width=True,
+        hide_index=True,
+        height=400
+    )
+
+
+# ============================================================
 # SIDEBAR
 # ============================================================
 
@@ -1823,6 +1966,64 @@ except Exception as e:
 
     st.error(
         f"Could not load derivatives data: {e}"
+    )
+
+
+# ============================================================
+# LOAD EQUITY GAINERS / LOSERS
+# ============================================================
+# Loaded here (rather than down in Group 2) so that the
+# NIFTY / F&O gainer & loser tables are already available
+# for the Top 3 Movers Summary, which renders below the
+# pre-market charts.
+# ============================================================
+
+try:
+
+    equity_raw = load_equity_variations()
+
+    nifty_gainers = prepare_equity_df(
+        extract_equity_group(
+            equity_raw.get("gainers"),
+            "NIFTY"
+        ),
+        descending=True
+    )
+
+    nifty_losers = prepare_equity_df(
+        extract_equity_group(
+            equity_raw.get("loosers"),
+            "NIFTY"
+        ),
+        descending=False
+    )
+
+    fno_gainers = prepare_equity_df(
+        extract_equity_group(
+            equity_raw.get("gainers"),
+            "FOSec"
+        ),
+        descending=True
+    )
+
+    fno_losers = prepare_equity_df(
+        extract_equity_group(
+            equity_raw.get("loosers"),
+            "FOSec"
+        ),
+        descending=False
+    )
+
+except Exception as e:
+
+    equity_raw = {}
+    nifty_gainers = pd.DataFrame()
+    nifty_losers = pd.DataFrame()
+    fno_gainers = pd.DataFrame()
+    fno_losers = pd.DataFrame()
+
+    st.error(
+        f"Could not load equity data: {e}"
     )
 
 
@@ -2046,6 +2247,22 @@ except Exception as e:
     )
 
 
+# ============================================================
+# TOP 3 MOVERS SUMMARY — placed right below the charts above
+# ============================================================
+
+st.divider()
+
+render_top_movers_summary(
+    nifty_gainers,
+    nifty_losers,
+    fno_gainers,
+    fno_losers,
+    derivatives["options"]["df"] if derivatives else pd.DataFrame(),
+    derivatives["calls"]["df"] if derivatives else pd.DataFrame(),
+    derivatives["puts"]["df"] if derivatives else pd.DataFrame(),
+)
+
 st.divider()
 
 if derivatives:
@@ -2068,53 +2285,10 @@ st.subheader(
     "Equity Gainers / Losers"
 )
 
-try:
-
-    equity_raw = load_equity_variations()
-
-    nifty_gainers = prepare_equity_df(
-        extract_equity_group(
-            equity_raw.get("gainers"),
-            "NIFTY"
-        ),
-        descending=True
-    )
-
-    nifty_losers = prepare_equity_df(
-        extract_equity_group(
-            equity_raw.get("loosers"),
-            "NIFTY"
-        ),
-        descending=False
-    )
-
-    fno_gainers = prepare_equity_df(
-        extract_equity_group(
-            equity_raw.get("gainers"),
-            "FOSec"
-        ),
-        descending=True
-    )
-
-    fno_losers = prepare_equity_df(
-        extract_equity_group(
-            equity_raw.get("loosers"),
-            "FOSec"
-        ),
-        descending=False
-    )
-
-except Exception as e:
-
-    nifty_gainers = pd.DataFrame()
-    nifty_losers = pd.DataFrame()
-    fno_gainers = pd.DataFrame()
-    fno_losers = pd.DataFrame()
-
-    st.error(
-        f"Could not load equity data: {e}"
-    )
-
+# NOTE: nifty_gainers / nifty_losers / fno_gainers / fno_losers
+# and equity_raw were already loaded earlier (before Group 1)
+# so the Top 3 Movers Summary above could use them. They are
+# simply rendered here as before.
 
 col1, col2 = st.columns(2)
 
