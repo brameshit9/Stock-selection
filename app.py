@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from streamlit_autorefresh import st_autorefresh
@@ -1781,26 +1782,6 @@ def build_top_movers_summary(sources):
     return pd.DataFrame(rows)
 
 
-def style_summary_table(df):
-
-    if df.empty:
-        return df
-
-    styler = df.style
-
-    if "% Chng" in df.columns:
-
-        styler = styler.map(
-            _change_color,
-            subset=["% Chng"]
-        )
-
-    return styler.format(
-        {"% Chng": "{:+.2f}%"},
-        na_rep="-"
-    )
-
-
 def render_top_movers_summary(
     nifty_gainers,
     nifty_losers,
@@ -1861,12 +1842,88 @@ def render_top_movers_summary(
         + " IST"
     )
 
-    st.dataframe(
-        style_summary_table(summary_df),
-        use_container_width=True,
-        hide_index=True,
-        height=400
+    # Build a readable bar label per row: "Category — Symbol"
+    chart_df = summary_df.copy()
+
+    chart_df["Label"] = (
+        chart_df["Category"]
+        + " — "
+        + chart_df["Symbol"]
     )
+
+    # Reverse row order so CE categories plot at the TOP of the
+    # barh chart (matplotlib barh draws bottom-to-top).
+    chart_df = (
+        chart_df
+        .iloc[::-1]
+        .reset_index(drop=True)
+    )
+
+    bar_colors = [
+        UP_COLOR if side == "CE" else DOWN_COLOR
+        for side in chart_df["Side"]
+    ]
+
+    fig, ax = plt.subplots(
+        figsize=(10, 10)
+    )
+
+    ax.barh(
+        chart_df["Label"],
+        chart_df["% Chng"],
+        color=bar_colors,
+        height=0.6
+    )
+
+    ax.axvline(
+        0,
+        color=TEXT_COLOR,
+        linewidth=0.8
+    )
+
+    ax.set_title(
+        "Top 3 Movers by Category — "
+        "CE (green) vs PE (red)"
+    )
+
+    ax.set_xlabel("% Chng")
+
+    for index, value in enumerate(
+        chart_df["% Chng"]
+    ):
+
+        ax.text(
+            value,
+            index,
+            f" {value:+.2f}%",
+            va="center",
+            ha=(
+                "left"
+                if value >= 0
+                else "right"
+            ),
+            fontsize=8
+        )
+
+    legend_handles = [
+        Patch(
+            facecolor=UP_COLOR,
+            label="CE — Calls / Gainers"
+        ),
+        Patch(
+            facecolor=DOWN_COLOR,
+            label="PE — Puts / Losers"
+        ),
+    ]
+
+    ax.legend(
+        handles=legend_handles,
+        loc="lower right"
+    )
+
+    st.pyplot(fig)
+
+    plt.close(fig)
 
 
 # ============================================================
