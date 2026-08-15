@@ -1003,6 +1003,8 @@ def render_derivative_preopen_chart(df):
 
     with col1:
 
+        plt.close("all")
+
         fig, ax = plt.subplots(
             figsize=(10, 10)
         )
@@ -1792,6 +1794,12 @@ def plot_movers_chart(df, title, bar_color, show_legend=False):
 
         return
 
+    # Defensive: make sure no stray/leftover matplotlib figure
+    # from a previous run is still open before we start a new
+    # one — this is what causes labels/old charts to appear to
+    # "bleed" into the next render.
+    plt.close("all")
+
     chart_df = df.copy()
 
     chart_df["Label"] = (
@@ -1809,51 +1817,57 @@ def plot_movers_chart(df, title, bar_color, show_legend=False):
         .reset_index(drop=True)
     )
 
-    # Size the figure to the number of bars instead of a fixed
-    # square, so a 12-bar chart doesn't end up cramped or
-    # oversized.
     n_bars = len(chart_df)
 
     fig_height = max(
-        3,
-        n_bars * 0.45 + 1
+        3.5,
+        n_bars * 0.5 + 1.2
     )
 
     fig, ax = plt.subplots(
-        figsize=(8, fig_height)
+        figsize=(9, fig_height)
     )
 
     ax.barh(
         chart_df["Label"],
         chart_df["% Chng"],
         color=bar_color,
-        height=0.55
+        height=0.55,
+        zorder=3
     )
 
     ax.axvline(
         0,
         color=TEXT_COLOR,
-        linewidth=0.8
+        linewidth=0.8,
+        zorder=2
     )
 
     ax.set_title(
         title,
-        fontsize=12
+        fontsize=13,
+        pad=14
     )
 
     ax.set_xlabel("% Chng")
 
-    # Give the value labels room so they don't get clipped or
-    # overlap the bars/axis edge.
+    # Give the value labels generous room on both sides so the
+    # biggest bar's label never gets clipped by the axes edge
+    # or collides with the title.
     x_min = float(chart_df["% Chng"].min())
     x_max = float(chart_df["% Chng"].max())
 
     span = (x_max - x_min) or 1.0
 
+    left_pad = span * 0.15 + 3
+    right_pad = span * 0.15 + 3
+
     ax.set_xlim(
-        x_min - span * 0.18 - 1,
-        x_max + span * 0.18 + 1
+        min(0, x_min) - left_pad,
+        max(0, x_max) + right_pad
     )
+
+    ax.set_ylim(-0.7, n_bars - 0.3)
 
     for index, value in enumerate(
         chart_df["% Chng"]
@@ -1862,15 +1876,22 @@ def plot_movers_chart(df, title, bar_color, show_legend=False):
         ax.text(
             value,
             index,
-            f" {value:+.2f}%",
+            f" {value:+.2f}% ",
             va="center",
             ha=(
                 "left"
                 if value >= 0
                 else "right"
             ),
-            fontsize=8
+            fontsize=9,
+            zorder=4,
+            clip_on=False
         )
+
+    ax.tick_params(
+        axis="y",
+        labelsize=9
+    )
 
     if show_legend:
 
@@ -1891,9 +1912,9 @@ def plot_movers_chart(df, title, bar_color, show_legend=False):
             fontsize=8
         )
 
-    fig.tight_layout()
+    fig.tight_layout(pad=1.6)
 
-    st.pyplot(fig)
+    st.pyplot(fig, clear_figure=True)
 
     plt.close(fig)
 
@@ -2213,6 +2234,8 @@ if not market_df.empty:
     )
 
     with col1:
+
+        plt.close("all")
 
         fig, ax = plt.subplots(
             figsize=(10, 10)
