@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from streamlit_autorefresh import st_autorefresh
@@ -1002,6 +1003,8 @@ def render_derivative_preopen_chart(df):
 
     with col1:
 
+        plt.close("all")
+
         fig, ax = plt.subplots(
             figsize=(10, 10)
         )
@@ -1729,20 +1732,23 @@ def make_most_active_equities(
 # ============================================================
 # TOP 3 MOVERS SUMMARY (CE / PE)
 # ============================================================
-# One compact table combining the top 3 (by % Chng) rows from
-# each of the CE-side and PE-side source tables:
+# Two SEPARATE, COMPACT tables (not one long combined one):
 #
-# CE (gainers side):
+# CE table (gainers side) — top 3 rows from each of:
 #   - NIFTY 50 Top Gainers
 #   - F&O Securities Top Gainers
 #   - Stock Options (CE contracts)
 #   - Most Active Stock Calls
 #
-# PE (losers side):
+# PE table (losers side) — top 3 rows from each of:
 #   - NIFTY 50 Top Losers
 #   - F&O Securities Top Losers
 #   - Stock Options (PE contracts)
 #   - Most Active Stock Puts
+#
+# Each table is sized to its actual row count (no leftover
+# empty space), so it stays short instead of a tall, mostly
+# empty panel.
 # ============================================================
 
 def build_top_movers_summary(sources):
@@ -1772,7 +1778,6 @@ def build_top_movers_summary(sources):
         for _, record in top3.iterrows():
 
             rows.append({
-                "Side": side,
                 "Category": category,
                 "Symbol": record["Symbol"],
                 "% Chng": record["% Chng"],
@@ -1798,6 +1803,37 @@ def style_summary_table(df):
     return styler.format(
         {"% Chng": "{:+.2f}%"},
         na_rep="-"
+    )
+
+
+def render_summary_table(df, title):
+
+    st.markdown(
+        f"**{title}**"
+    )
+
+    if df is None or df.empty:
+
+        st.info(
+            f"No data available for '{title}'."
+        )
+
+        return
+
+    # Compact height: just enough for the header + actual rows
+    # (~35px per row), so the table doesn't leave a big empty
+    # area like a fixed tall height would.
+    row_height = 35
+
+    header_height = 38
+
+    height = header_height + row_height * len(df)
+
+    st.dataframe(
+        style_summary_table(df),
+        use_container_width=True,
+        hide_index=True,
+        height=height
     )
 
 
@@ -1832,21 +1868,29 @@ def render_top_movers_summary(
             options_df["Type"] == "PE"
         ]
 
-    sources = [
+    gainer_sources = [
         ("CE", "NIFTY 50 Gainers", nifty_gainers, False),
         ("CE", "F&O Gainers", fno_gainers, False),
         ("CE", "Stock Options (CE)", ce_options, False),
         ("CE", "Most Active Calls", calls_df, False),
+    ]
 
+    loser_sources = [
         ("PE", "NIFTY 50 Losers", nifty_losers, True),
         ("PE", "F&O Losers", fno_losers, True),
         ("PE", "Stock Options (PE)", pe_options, True),
         ("PE", "Most Active Puts", puts_df, True),
     ]
 
-    summary_df = build_top_movers_summary(sources)
+    gainer_summary_df = build_top_movers_summary(
+        gainer_sources
+    )
 
-    if summary_df.empty:
+    loser_summary_df = build_top_movers_summary(
+        loser_sources
+    )
+
+    if gainer_summary_df.empty and loser_summary_df.empty:
 
         st.info(
             "Top 3 movers summary not available yet "
@@ -1861,12 +1905,21 @@ def render_top_movers_summary(
         + " IST"
     )
 
-    st.dataframe(
-        style_summary_table(summary_df),
-        use_container_width=True,
-        hide_index=True,
-        height=400
-    )
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        render_summary_table(
+            gainer_summary_df,
+            "🟢 CE — Gainers"
+        )
+
+    with col2:
+
+        render_summary_table(
+            loser_summary_df,
+            "🔴 PE — Losers"
+        )
 
 
 # ============================================================
@@ -2094,6 +2147,8 @@ if not market_df.empty:
     )
 
     with col1:
+
+        plt.close("all")
 
         fig, ax = plt.subplots(
             figsize=(10, 10)
