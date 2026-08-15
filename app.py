@@ -1782,68 +1782,17 @@ def build_top_movers_summary(sources):
     return pd.DataFrame(rows)
 
 
-def render_top_movers_summary(
-    nifty_gainers,
-    nifty_losers,
-    fno_gainers,
-    fno_losers,
-    options_df,
-    calls_df,
-    puts_df
-):
+def plot_movers_chart(df, title):
 
-    st.subheader(
-        "🎯 Top 3 Movers Summary — CE (Gainers) vs PE (Losers)"
-    )
-
-    ce_options = pd.DataFrame()
-    pe_options = pd.DataFrame()
-
-    if (
-        options_df is not None
-        and not options_df.empty
-        and "Type" in options_df.columns
-    ):
-
-        ce_options = options_df[
-            options_df["Type"] == "CE"
-        ]
-
-        pe_options = options_df[
-            options_df["Type"] == "PE"
-        ]
-
-    sources = [
-        ("CE", "NIFTY 50 Gainers", nifty_gainers, False),
-        ("CE", "F&O Gainers", fno_gainers, False),
-        ("CE", "Stock Options (CE)", ce_options, False),
-        ("CE", "Most Active Calls", calls_df, False),
-
-        ("PE", "NIFTY 50 Losers", nifty_losers, True),
-        ("PE", "F&O Losers", fno_losers, True),
-        ("PE", "Stock Options (PE)", pe_options, True),
-        ("PE", "Most Active Puts", puts_df, True),
-    ]
-
-    summary_df = build_top_movers_summary(sources)
-
-    if summary_df.empty:
+    if df is None or df.empty:
 
         st.info(
-            "Top 3 movers summary not available yet "
-            "— underlying tables have not loaded."
+            f"No data available for '{title}'."
         )
 
         return
 
-    st.caption(
-        "Top 3 by % Chng from each CE/PE source table — "
-        + now_ist().strftime("%d-%b-%Y %H:%M:%S")
-        + " IST"
-    )
-
-    # Build a readable bar label per row: "Category — Symbol"
-    chart_df = summary_df.copy()
+    chart_df = df.copy()
 
     chart_df["Label"] = (
         chart_df["Category"]
@@ -1864,15 +1813,25 @@ def render_top_movers_summary(
         for side in chart_df["Side"]
     ]
 
+    # Size the figure to the number of bars instead of a fixed
+    # square, so a 12-bar chart doesn't end up as tall/cramped
+    # as a 24-bar one.
+    n_bars = len(chart_df)
+
+    fig_height = max(
+        3,
+        n_bars * 0.45 + 1
+    )
+
     fig, ax = plt.subplots(
-        figsize=(10, 10)
+        figsize=(8, fig_height)
     )
 
     ax.barh(
         chart_df["Label"],
         chart_df["% Chng"],
         color=bar_colors,
-        height=0.6
+        height=0.55
     )
 
     ax.axvline(
@@ -1882,11 +1841,23 @@ def render_top_movers_summary(
     )
 
     ax.set_title(
-        "Top 3 Movers by Category — "
-        "CE (green) vs PE (red)"
+        title,
+        fontsize=12
     )
 
     ax.set_xlabel("% Chng")
+
+    # Give the value labels room so they don't get clipped or
+    # overlap the bars/axis edge.
+    x_min = float(chart_df["% Chng"].min())
+    x_max = float(chart_df["% Chng"].max())
+
+    span = (x_max - x_min) or 1.0
+
+    ax.set_xlim(
+        x_min - span * 0.18 - 1,
+        x_max + span * 0.18 + 1
+    )
 
     for index, value in enumerate(
         chart_df["% Chng"]
@@ -1918,12 +1889,105 @@ def render_top_movers_summary(
 
     ax.legend(
         handles=legend_handles,
-        loc="lower right"
+        loc="lower right",
+        fontsize=8
     )
+
+    fig.tight_layout()
 
     st.pyplot(fig)
 
     plt.close(fig)
+
+
+def render_top_movers_summary(
+    nifty_gainers,
+    nifty_losers,
+    fno_gainers,
+    fno_losers,
+    options_df,
+    calls_df,
+    puts_df
+):
+
+    st.subheader(
+        "🎯 Top 3 Movers Summary — CE (Gainers) vs PE (Losers)"
+    )
+
+    ce_options = pd.DataFrame()
+    pe_options = pd.DataFrame()
+
+    if (
+        options_df is not None
+        and not options_df.empty
+        and "Type" in options_df.columns
+    ):
+
+        ce_options = options_df[
+            options_df["Type"] == "CE"
+        ]
+
+        pe_options = options_df[
+            options_df["Type"] == "PE"
+        ]
+
+    # Split into two groups instead of one 24-bar chart:
+    # equity % moves (typically single-digit %) and option
+    # premium % moves (which can run into the hundreds of %).
+    # Mixing both on one axis squashes the equity bars flat —
+    # keeping them on separate charts keeps each readable.
+    equity_sources = [
+        ("CE", "NIFTY 50 Gainers", nifty_gainers, False),
+        ("CE", "F&O Gainers", fno_gainers, False),
+        ("PE", "NIFTY 50 Losers", nifty_losers, True),
+        ("PE", "F&O Losers", fno_losers, True),
+    ]
+
+    options_sources = [
+        ("CE", "Stock Options (CE)", ce_options, False),
+        ("CE", "Most Active Calls", calls_df, False),
+        ("PE", "Stock Options (PE)", pe_options, True),
+        ("PE", "Most Active Puts", puts_df, True),
+    ]
+
+    equity_summary_df = build_top_movers_summary(
+        equity_sources
+    )
+
+    options_summary_df = build_top_movers_summary(
+        options_sources
+    )
+
+    if equity_summary_df.empty and options_summary_df.empty:
+
+        st.info(
+            "Top 3 movers summary not available yet "
+            "— underlying tables have not loaded."
+        )
+
+        return
+
+    st.caption(
+        "Top 3 by % Chng from each CE/PE source table — "
+        + now_ist().strftime("%d-%b-%Y %H:%M:%S")
+        + " IST"
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        plot_movers_chart(
+            equity_summary_df,
+            "Equity Movers (Stocks)"
+        )
+
+    with col2:
+
+        plot_movers_chart(
+            options_summary_df,
+            "Options Movers (Premium % Chng)"
+        )
 
 
 # ============================================================
